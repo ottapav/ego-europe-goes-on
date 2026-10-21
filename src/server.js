@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const E = require('./engine');
 const C = require('./content');
+const EN = require('../public/i18n.js').make('en', C);
+const err = k => ({ error: EN.t(k), code: { k } });
 
 const PORT = Number(process.env.PORT || 3000);
 const TICK_MINUTES = Number(process.env.TICK_MINUTES || 1440); // one in-game year per real day by default
@@ -39,7 +41,7 @@ setInterval(() => { if (!world.over && world.nextTickAt && Date.now() >= world.n
 const CONTENT = JSON.stringify({
   START_YEAR: C.START_YEAR, END_YEAR: C.END_YEAR, AP_PER_YEAR: C.AP_PER_YEAR, LEVELS: C.LEVELS, LEVEL_THRESHOLDS: C.LEVEL_THRESHOLDS,
   EU_FACTS: C.EU_FACTS, STATES: C.STATES, GOALS: C.GOALS, THREATS: C.THREATS, RIVALS: C.RIVALS, PARTNERS: C.PARTNERS,
-  CARDS: C.CARDS, PROPOSALS: C.PROPOSALS, TICK_MINUTES,
+  CARDS: C.CARDS, PROPOSALS: C.PROPOSALS, NEUTRAL_EVENTS: C.NEUTRAL_EVENTS, CRISES: C.CRISES, TICK_MINUTES,
 });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
@@ -65,8 +67,8 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/join' && req.method === 'POST') {
       const { name, state } = await readBody(req);
-      if (world.over) return send(res, 400, { error: 'This game is over. Wait for a new one.' });
-      if (!C.STATES[state]) return send(res, 400, { error: 'Pick one of the states.' });
+      if (world.over) return send(res, 400, err('err.over'));
+      if (!C.STATES[state]) return send(res, 400, err('err.pickState'));
       const p = E.addPlayer(world, { name: String(name || '').trim() || 'Anonymous', state });
       save();
       return send(res, 200, { playerId: p.id });
@@ -75,11 +77,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/plan' && req.method === 'POST') {
       const { playerId, cards, vote } = await readBody(req);
       const p = world.players[playerId];
-      if (!p || p.bot) return send(res, 404, { error: 'Unknown player. Join the game first.' });
-      if (world.over) return send(res, 400, { error: 'The game is over.' });
-      if (p.skipYear === world.year) return send(res, 400, { error: 'Your government fell: no actions this year.' });
+      if (!p || p.bot) return send(res, 404, err('err.unknownPlayer'));
+      if (world.over) return send(res, 400, err('err.gameOver'));
+      if (p.skipYear === world.year) return send(res, 400, err('err.fell'));
       const v = E.validatePlan(world, p, cards);
-      if (!v.ok) return send(res, 400, { error: v.error });
+      if (!v.ok) return send(res, 400, { error: v.error, code: v.code });
       world.plans[p.id] = v.cards;
       if (vote === 'yes' || vote === 'no') world.votes[p.id] = vote;
       p.lastActiveYear = world.year;

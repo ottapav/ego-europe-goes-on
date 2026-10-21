@@ -67,3 +67,34 @@ test('a mostly national EU loses to a rival or falls apart', () => {
   const { w } = runGame(42, { coop: 1, national: 3 });
   assert.ok(['rival', 'divided'].includes(w.ending.id));
 });
+
+test('every piece of content and every message exists in Czech', () => {
+  const I = require('../public/i18n.js');
+  const { DICT, CS } = I;
+  for (const k of Object.keys(DICT.en)) assert.ok(k in DICT.cs, `missing Czech UI text: ${k}`);
+  for (const id of Object.keys(C.STATES)) assert.ok(CS.states[id]?.name && CS.states[id]?.ruleText && CS.states[id]?.line, `state ${id}`);
+  for (const id of Object.keys(C.GOALS)) assert.ok(CS.goals[id]?.name && CS.goals[id]?.rewardText && CS.goals[id]?.note, `goal ${id}`);
+  for (const id of Object.keys(C.THREATS)) assert.ok(CS.threats[id]?.name, `threat ${id}`);
+  for (const p of C.PROPOSALS) assert.ok(CS.proposals[p.id]?.name, `proposal ${p.id}`);
+  for (const e of C.NEUTRAL_EVENTS) assert.ok(CS.events[e.id]?.name, `event ${e.id}`);
+  for (const id of Object.keys(C.CRISES)) assert.ok(CS.crises[id]?.name, `crisis ${id}`);
+  for (const c of C.CARDS) if (!c.goalCard && !c.rejoin) assert.ok(CS.cards[c.id]?.[0] && CS.cards[c.id]?.[1], `card ${c.id}`);
+  assert.strictEqual(CS.facts.length, C.EU_FACTS.length);
+});
+
+test('engine news and logs are message codes that render in both languages', () => {
+  const I = require('../public/i18n.js');
+  const { runGame } = require('./simulate');
+  const { w } = runGame(42, { coop: 3, national: 1 });
+  const cs = I.make('cs', C), en = I.make('en', C);
+  const msgs = [...w.news, ...Object.values(w.players).flatMap(p => p.log)];
+  assert.ok(msgs.length > 5);
+  for (const m of msgs) {
+    assert.ok(m.k, 'structured message');
+    for (const T of [cs, en]) {
+      const s = T.msg(m);
+      assert.ok(s && !s.includes('{') && !s.includes('undefined'), `${m.k} -> ${s}`);
+    }
+  }
+  assert.match(cs.text.ending(w.ending).name, /Evropa/);
+});

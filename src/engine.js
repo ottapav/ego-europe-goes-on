@@ -1,5 +1,7 @@
 // EGO – Europe Goes On: game engine. Pure functions over a plain JSON world object.
 const C = require('./content');
+const I18N = require('../public/i18n.js');
+const EN = I18N.make('en', C); // English sentences for API error strings
 
 const CARD_BY_ID = Object.fromEntries(C.CARDS.map(c => [c.id, c]));
 const STATE_IDS = Object.keys(C.STATES);
@@ -82,15 +84,15 @@ function cardsForPlayer(world, p) {
 }
 
 function lockReason(world, p, c) {
-  if (c.rejoin) return p.status[c.rejoin] === 'excluded' ? null : 'Only when excluded from this goal';
-  if (c.goalCard && world.goals[c.goalCard].done) return 'Goal already completed';
-  if (c.tier === 2 && p.res.trust < 30) return 'Needs Trust 30+';
-  if (c.tier === 3 && p.res.trust < 50) return 'Needs Trust 50+';
-  if (c.level != null && world.level < c.level) return `Needs EU level: ${C.LEVELS[c.level]}`;
+  if (c.rejoin) return p.status[c.rejoin] === 'excluded' ? null : { k: 'lock.rejoinOnly' };
+  if (c.goalCard && world.goals[c.goalCard].done) return { k: 'lock.goalDone' };
+  if (c.tier === 2 && p.res.trust < 30) return { k: 'lock.trust', n: 30 };
+  if (c.tier === 3 && p.res.trust < 50) return { k: 'lock.trust', n: 50 };
+  if (c.level != null && world.level < c.level) return { k: 'lock.level', level: c.level };
   const gReq = c.goalCard && C.GOALS[c.goalCard].requires;
-  if (gReq && !world.goals[gReq].done) return `Needs ${C.GOALS[gReq].name} first`;
-  if (c.id === 'nl_compute' && !world.goals.power.done) return 'Needs Single Power Market first';
-  if (c.flag && p.flags[c.flag]) return 'Already built';
+  if (gReq && !world.goals[gReq].done) return { k: 'lock.requires', goal: gReq };
+  if (c.id === 'nl_compute' && !world.goals.power.done) return { k: 'lock.requires', goal: 'power' };
+  if (c.flag && p.flags[c.flag]) return { k: 'lock.built' };
   return null;
 }
 
@@ -101,21 +103,23 @@ function cardCost(p, c) {
   return cost;
 }
 
+const fail = code => ({ ok: false, code, error: EN.msg(code) });
+
 function validatePlan(world, p, cardIds) {
   const ids = [...new Set((cardIds || []).filter(id => CARD_BY_ID[id]))];
   let ap = 0, eur = p.res.eur;
   for (const id of ids) {
     const c = CARD_BY_ID[id];
-    if (c.state && c.state !== p.state) return { ok: false, error: `${c.name} is not available to ${C.STATES[p.state].name}` };
+    if (c.state && c.state !== p.state) return fail({ k: 'err.notYourState', card: c.id, state: p.state });
     const lock = lockReason(world, p, c);
-    if (lock) return { ok: false, error: `${c.name}: ${lock}` };
+    if (lock) return fail({ k: 'err.locked', card: c.id, lock });
     ap += c.ap;
     const cost = cardCost(p, c);
     eur -= cost.eur || 0;
-    if (cost.trust && p.res.trust < cost.trust) return { ok: false, error: `${c.name}: not enough Trust` };
+    if (cost.trust && p.res.trust < cost.trust) return fail({ k: 'err.trust', card: c.id });
   }
-  if (ap > C.AP_PER_YEAR) return { ok: false, error: `Too many action points (${ap}/${C.AP_PER_YEAR})` };
-  if (eur < 0) return { ok: false, error: 'Not enough € for these cards' };
+  if (ap > C.AP_PER_YEAR) return fail({ k: 'err.ap', ap, max: C.AP_PER_YEAR });
+  if (eur < 0) return fail({ k: 'err.eur' });
   return { ok: true, cards: ids, ap };
 }
 
@@ -135,7 +139,7 @@ function addScaled(map, key, v, scale) { map[key] = (map[key] || 0) + v * scale;
 
 function playCard(world, p, c, ctx) {
   const cost = cardCost(p, c);
-  if ((cost.eur || 0) > p.res.eur) { p.log.push(`Skipped ${c.name}: not enough €`); return false; }
+  if ((cost.eur || 0) > p.res.eur) { p.log.push({ k: 'log.skipped', card: c.id }); return false; }
   p.res.eur -= cost.eur || 0;
   if (c.goalCard) world.treasury -= Math.min(world.treasury, Math.floor(C.GOALS[c.goalCard].cost * 0.25));
   if (cost.trust) p.res.trust -= cost.trust;
@@ -217,16 +221,16 @@ function completeGoal(world, g) {
     if (p.status[g] === 'contributor') {
       p.res.prosperity += 15 * lateMult;
       p.legacy = Math.min(100, p.legacy + Math.min(20, 10 * p.contributed[g] / Math.max(1, avg)));
-      p.log.push(`${def.name} completed: full reward.`);
+      p.log.push({ k: 'log.goalFull', goal: g });
     } else if (p.status[g] === 'excluded') {
-      p.log.push(`You missed ${def.name}: you played a conflicting card, so you get no reward.`);
+      p.log.push({ k: 'log.goalMissed', goal: g });
     } else {
-      p.log.push(`${def.name} completed: you get 40% of the reward as a neutral state.`);
+      p.log.push({ k: 'log.goalNeutral', goal: g });
     }
   }
   for (const [k, v] of Object.entries(def.onComplete?.threats || {})) world.threats[k] += v;
   for (const [k, v] of Object.entries(def.onComplete?.rivals || {})) world.rivals[k] += v;
-  world.news.unshift({ year: world.year, text: `${def.icon} ${def.name} completed${goal.late ? ' (late, half reward)' : ''}.` });
+  world.news.unshift({ year: world.year, k: 'news.goal', goal: g, late: goal.late });
 }
 
 // ---------- council ----------
@@ -273,7 +277,7 @@ function resolveCouncil(world) {
     world.flags.passed = [...(world.flags.passed || []), pr.id];
   }
   const result = { year: world.year, id: pr.id, name: pr.name, rule, passed, stateVotes, yesWeight: round1(yesW), totalWeight: round1(totalW) };
-  world.news.unshift({ year: world.year, text: `🏛️ Council ${passed ? 'passed' : 'rejected'}: ${pr.name} (${rule}).` });
+  world.news.unshift({ year: world.year, k: 'news.council', proposal: pr.id, passed, rule });
   return result;
 }
 
@@ -406,7 +410,7 @@ function resolveYear(world) {
   }
   // 2. cards
   for (const p of Object.values(world.players)) {
-    if (p.skipYear === world.year) { p.log.push('Your government fell: no actions this year.'); continue; }
+    if (p.skipYear === world.year) { p.log.push({ k: 'log.fellNow' }); continue; }
     const plan = world.plans[p.id] || [];
     if (plan.length && !p.bot) p.lastActiveYear = world.year;
     for (const id of plan) { const c = CARD_BY_ID[id]; if (c && !lockReason(world, p, c)) playCard(world, p, c, ctx); }
@@ -444,7 +448,7 @@ function resolveYear(world) {
   // 7. integration, rivals, threats, partners
   world.integration = clamp(world.integration + (ctx.integrationPts / n) * 4 - 0.5, 0, 100);
   const newLevel = levelIndex(world.integration);
-  if (newLevel !== world.level) world.news.unshift({ year: world.year, text: `🇪🇺 The EU is now a ${C.LEVELS[newLevel]}.` });
+  if (newLevel !== world.level) world.news.unshift({ year: world.year, k: 'news.level', level: newLevel });
   world.level = newLevel;
   computeScores(world);
   for (const [k, def] of Object.entries(C.RIVALS)) world.rivals[k] += def.growth + ((ctx.rivals[k] || 0) / n) * 3;
@@ -464,12 +468,12 @@ function resolveYear(world) {
       goal.claimed = true;
       const rival = g === 'nuclear' ? 'china' : g === 'power' || g === 'defense' ? null : 'usa';
       if (rival) world.rivals[rival] += 8; else world.threats.war = clamp(world.threats.war + 8, 0, 100);
-      world.news.unshift({ year: world.year, text: `⏰ Deadline missed: ${def.name}. ${rival ? C.RIVALS[rival].name + ' claims the domain.' : 'Russian pressure grows.'}` });
+      world.news.unshift({ year: world.year, k: 'news.deadline', goal: g, rival });
     }
   }
   // 8. event
   world.lastEvent = applyEvent(world, drawEvent(world, r));
-  world.news.unshift({ year: world.year, text: `📰 ${world.lastEvent.name}` });
+  world.news.unshift({ year: world.year, k: 'news.event', event: { kind: world.lastEvent.kind, id: world.lastEvent.id, severe: world.lastEvent.severe } });
   // 9. clamp, government falls, elections
   for (const p of Object.values(world.players)) {
     for (const k of STOCKS) p.res[k] = round1(clamp(p.res[k], 0, 100));
@@ -480,7 +484,7 @@ function resolveYear(world) {
     const election = (world.year - C.START_YEAR) % 4 === 1;
     if (p.res.approval < 20 || (election && p.res.approval < 35)) {
       p.skipYear = world.year + 1; p.res.approval = 35;
-      p.log.push(election ? 'You lost the election: no actions next year.' : 'Your government fell: no actions next year.');
+      p.log.push({ k: election ? 'log.lostElection' : 'log.fellNext' });
     }
   }
   computeScores(world);
@@ -526,9 +530,9 @@ function checkEnding(world) {
     divided: { name: 'Divided Europe', mult: 0.6, text: 'Trust collapsed or war pressure broke the Union apart.' },
   };
   world.over = true;
-  world.ending = { id: ending, ...ENDINGS[ending], rival: topRival, year: world.year };
+  world.ending = { id: ending, ...ENDINGS[ending], rival: topRival, year: world.year, goalsDone };
   for (const p of Object.values(world.players)) p.finalScore = Math.round(p.score * world.ending.mult);
-  world.news.unshift({ year: world.year, text: `🏁 Game over: ${world.ending.name}.` });
+  world.news.unshift({ year: world.year, k: 'news.over', ending: { id: ending, rival: topRival, goalsDone } });
 }
 
 // ---------- views ----------

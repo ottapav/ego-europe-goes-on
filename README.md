@@ -15,6 +15,7 @@ If Europe completes enough of its seven goals and out-grows its rivals by 2040, 
 - **Exclusion:** a card that works against a goal (selling a chip company abroad, a cheap gas deal with an authoritarian supplier, a non-EU arms deal) locks you out of that goal's reward. You can buy your way back in.
 - **Council of the EU:** one proposal a year. It starts with unanimity, so one state can block. When the EU reaches Union level, qualified majority applies: 55% of states representing 65% of the population.
 - **Score:** Prosperity + Education + Security + Approval + Legacy. State score = average of its players; EU score = average of the six states.
+- **Languages:** English and Czech. Choosing Czechia switches the game to Czech; the EN / CS switch in the header changes it at any time and is remembered. `?lang=cs` in the address also works.
 - **Endings:** *Europe goes big* (×1.2), *Second-tier Europe* (×1.0), *The American / Chinese Century* (×0.8), *Divided Europe* (×0.6).
 
 The balance is tuned so that cooperation follows a J-curve. National players lead for the first few years; cooperators overtake them around 2033–2035 and finish well ahead. `npm run simulate` shows it.
@@ -51,6 +52,7 @@ The server keeps the whole world in one JSON file, so any host with a persistent
 | `src/engine.js` | Pure game logic: year resolution, goals and exclusion, Council voting, threats, bots, scoring, endings |
 | `src/server.js` | Zero-dependency HTTP server, JSON persistence, daily tick |
 | `public/` | The one-page client (HTML, CSS, vanilla JS) |
+| `public/i18n.js` | All interface texts in English and Czech, plus Czech names and notes for every card, goal, state and event. Shared by the page and the server. |
 | `test/` | Engine tests and the strategy simulator |
 
 ### API
@@ -79,5 +81,5 @@ The game starts from the EU of autumn 2026. Game values (Prosperity, Trust and s
 - Accounts instead of a browser-stored player id
 - Player chat and Council debate
 - Classroom mode: private EUs, teacher dashboard, one year per lesson
-- More states: Italy, Sweden, the Baltics, Romania
+- More states: Italy, Sweden, the Baltics, Romania, each in its own language
 - End-of-game report comparing cooperators and defectors
